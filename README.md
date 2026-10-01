@@ -1,66 +1,112 @@
 # limen
 
-**Where a molecular distinction becomes visible to sequencing.**
+**Measuring what sequencing can know, and what it only appears to know.**
 
 *limen* (Latin, *threshold*; in psychophysics, the smallest stimulus that can
-still be detected) measures the read length at which two different RNA
-molecules stop being confusable — computed from an annotation alone, before
-any sequencing is done.
+still be detected).
+
+## The problem
+
+Sequencing does not observe the transcriptome. It observes whatever survives
+extraction, fragmentation, reverse transcription, amplification, basecalling,
+alignment and statistical inference. The molecule in the cell is not the
+molecule in the tube, is not the read, is not the FASTQ, is not the count
+table.
+
+Each of those steps discards information. None of them can be measured in a
+real experiment, because the starting state is never observed. We compare the
+end of the chain against the end of another chain and call the difference a
+result.
+
+This project defines the starting state, so the loss becomes measurable.
 
 ## The question
 
-The molecule in the cell is not the molecule in the tube, is not the read, is
-not the FASTQ, is not the count table. Every step loses something, and in a
-real experiment the starting state is never observed, so the loss cannot be
-measured. This project defines the starting state and measures the loss.
+Long-read sequencing is usually chosen by category: *I study structural
+variants, therefore long reads.* The choice is rarely quantitative. The
+question here is the quantitative one:
 
-Concretely: **what can long reads see that short reads cannot?** Stated
-mathematically that is a question of *identifiability* — when do two genuinely
-different transcript populations produce byte-identical data?
+> What can long reads know that short reads cannot, and to what extent?
 
-### Worked example
+Not "which platform is better", which depends on the question asked, but where
+exactly the boundary sits, what sets its position, and when the short-read
+answer stops being merely blurry and becomes actively wrong.
 
-A gene `A–[B]–M(2000 nt)–[C]–D` where B and C are independently skippable:
-four isoforms, two splicing decisions ~2000 nt apart.
+## Approach
+
+Three levels, each a different claim.
+
+| | asks | needs |
+|---|---|---|
+| **0** | what is knowable in principle, at a given read length | annotation only |
+| **1** | what a real pipeline actually recovers | simulated reads, aligner, quantifier |
+| **2** | whether the predicted behaviour holds on real libraries | matched long and short read data |
+
+Level 0 gives a ceiling: infinite depth, no errors, perfect annotation. Real
+pipelines land below it.
+
+**The distance between the ceiling and what is achieved is the result.** Level
+0 alone is a known quantity in one organism. The gap is not.
+
+Two further axes that no existing study covers:
+
+- **Transcriptome architecture as a variable.** The relationship between read
+  length and recoverable information depends on how exons are sized and
+  spaced, and every published analysis is human. Six genomes spanning
+  intron-poor yeasts, intron-dense green algae, and an allotetraploid plant
+  make architecture an independent variable rather than a constant.
+- **Reads generated under full control.** Fragment length, error profile,
+  truncation, chimera rate, depth and annotation completeness become separate
+  dials rather than bundled platform presets, so their contributions can be
+  told apart instead of attributed wholesale to "read length".
+
+## A worked example
+
+A gene `A-[B]-M(2000 nt)-[C]-D`, where B and C are independently skippable:
+four isoforms, two splicing decisions about 2000 nt apart in the mature
+message.
 
 | population | composition |
 |---|---|
-| 1 | 50% keep both + 50% skip both |
-| 2 | 50% keep B only + 50% keep C only |
+| 1 | 50% keep both, 50% skip both |
+| 2 | 50% keep B only, 50% keep C only |
 
-Different molecules. At 150 bp the observed data is **identical** — not noisy,
-not underpowered: the same numbers. Short reads see two marginals and four
-unknowns. At 2002 nt — the shortest read reaching from inside B to inside C —
-they separate.
+Different molecules, possibly different proteins. At 150 bp the observed data
+from these two populations is *identical*. Not noisy, not underpowered: the
+same numbers. Short reads see two marginals (how often B appears, how often C
+appears) against four unknowns.
 
-Quantifiers still return four abundances. In that regime the EM picks one
-point from an infinite family of equally valid solutions.
+At 2002 nt, the shortest read reaching from inside B to inside C, they
+separate cleanly.
 
-## Method
+Quantifiers are asked for four abundances and return four regardless. In the
+deficient regime the EM selects one point from an infinite family of equally
+valid solutions, guided by its priors rather than by the data. Those invented
+answers are detectable: Chen *et al.* (2025) found short-read-specific "major
+isoforms", tested thirteen by digital PCR, and showed they were not the
+dominant molecules.
 
-Every possible read contributes one row of a 0/1 incidence matrix **M**: a 1
-for each transcript that could have produced it.
+## Level 0: how the ceiling is computed
 
-- `rank(M) == K` → abundances uniquely determined. **Identifiable.**
-- `rank(M) < K` → different mixtures give identical data. `K - rank(M)` is the
-  number of invisible dimensions.
+Each possible read contributes one row of a 0/1 incidence matrix **M**, with a
+1 for every transcript that could have produced it.
 
-This is the infinite-depth, error-free **ceiling**. Real pipelines land below
-it.
+- `rank(M) == K`: abundances are uniquely determined. Identifiable.
+- `rank(M) < K`: different transcript mixtures produce identical data, and no
+  algorithm, no sequencing depth and no replication can separate them.
+  `K - rank(M)` counts the invisible dimensions.
 
-## Levels
+Identifiability is a standard tool, not a contribution of this project (see
+Prior work). It is used here because it is the correct way to state the
+ceiling. Level 0 never reads sequence: a GFF3 or GTF is the only input.
 
-| | measures | needs |
-|---|---|---|
-| **0** identifiability | the ceiling vs read length | annotation only |
-| **1** simulation | what real tools recover; the gap | + genome FASTA, aligner, quantifier |
-| **2** real data | whether the predicted gap holds | matched long/short-read libraries |
+## Status
 
-Level 0 never reads sequence. A GFF3 or GTF is the only input.
+Early. Level 0 is being built and validated. Levels 1 and 2 are not started.
 
 ## Setup
 
-Requires Python ≥ 3.9 and numpy. Nothing else.
+Python 3.9 or newer, and numpy. Nothing else.
 
 ```bash
 git clone https://github.com/ih-11/limen.git
@@ -69,7 +115,8 @@ pip install -e ".[dev]"
 pytest -q
 ```
 
-Activate whichever environment you use first — the repo does not care which:
+Activate whichever environment you use first. The repository does not care
+which, and never names one:
 
 ```bash
 conda activate ih      # macOS
@@ -78,9 +125,8 @@ conda activate ibnu    # WSL
 
 ### Paths
 
-No absolute path appears anywhere in this repository. Point it at your data
-with two environment variables, set in `~/.zshrc` (macOS) or `~/.bashrc`
-(WSL):
+No absolute path appears in any committed file. Point the code at your data
+with two environment variables, in `~/.zshrc` on macOS or `~/.bashrc` on WSL:
 
 ```bash
 # macOS
@@ -92,22 +138,33 @@ export LIMEN_REF="/mnt/f/RA/Downstream/Project4_LIMEN/ReferenceGenome"
 export LIMEN_WORK="$HOME/work/limen"
 ```
 
-Code lives in git, large data never does, and generated output goes to
-`$LIMEN_WORK`. On WSL keep working data under `$HOME` rather than `/mnt/`,
-which is noticeably slower.
+Code lives in git. Large data never does. Generated output goes to
+`$LIMEN_WORK`. On WSL, keep working data under `$HOME` rather than under
+`/mnt/`, which is markedly slower.
+
+Reference files are never modified. Spike-ins, organelles and unplaced
+contigs are filtered when the annotation is read.
 
 ## Prior work
 
-The identifiability framework for short-read RNA-seq is due to Hiller *et al.*
-(2009) *Bioinformatics* **25**:3056, and Ferrer-Bonsoms *et al.* (2022)
-*Bioinformatics* **38**:1491, the latter computing identifiability as a
-function of read and fragment length for human only, 75–300 bp, assuming
-infinite depth, and not treating long reads.
+Structural identifiability of isoform deconvolution was established for
+short-read RNA-seq by:
 
-This is an independent Python implementation written from the published
-descriptions; no code is derived from those repositories. It extends the
-question to the long-read regime and across transcriptomes of differing
-architecture.
+- Hiller *et al.* (2009) *Bioinformatics* **25**:3056. Identifiability
+  conditions for isoform deconvolution. Read length is not a variable.
+- Ferrer-Bonsoms *et al.* (2022) *Bioinformatics* **38**:1491. Identifiability
+  as a function of read and fragment length, used to select a library. Human
+  only, 75 to 300 bp, infinite depth assumed, long reads not considered.
+
+This repository contains an independent Python implementation written from the
+published descriptions. No code is derived from those projects. Reproducing
+their human results is used as a correctness check on the implementation, not
+as a result.
+
+What is new here is the extension of the read-length axis into the long-read
+range, the treatment of transcriptome architecture as an independent variable,
+and the measurement of the distance between the structural ceiling and what
+real pipelines recover.
 
 ## Licence
 
