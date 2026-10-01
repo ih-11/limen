@@ -356,27 +356,34 @@ def signature_owners_bruteforce(gene: Gene, R: int,
     return owners
 
 
-def private_fraction(gene: Gene, R: int,
+def diagnostic_fraction(gene: Gene, R: int,
                      F: Optional[int] = None) -> List[Tuple[int, int]]:
     """
-    Per transcript: (private start positions, total start positions).
+    Per transcript: (diagnostic start positions, total start positions).
 
-    A start position is private when the resulting genomic footprint cannot be
-    produced by any other transcript of the gene.  The ratio is the share of a
-    molecule that actually carries evidence of its own identity.
+    A read is DIAGNOSTIC when no other transcript of the same gene could have
+    produced its genomic footprint, so it is direct evidence that this
+    particular molecule was present.  A read that a sibling isoform could also
+    explain is ambiguous: real data, but silent about which molecule it came
+    from.  The ratio is the share of a transcript's reads that identify it.
 
-    A transcript can be structurally identifiable (rank full) and still have a
-    private fraction near zero: the distinguishing read exists but almost
-    nothing lands on it.  That is the regime where quantifiers return confident
-    answers with no support, and it is invisible to a rank test.
+    Zero does not mean a transcript gets no reads.  It means every read it can
+    produce is also explainable by a sibling, so its abundance is reachable
+    only by subtracting the others.  That is qualitatively different from a
+    small fraction: a small fraction needs more depth, zero cannot be fixed by
+    depth at all.
+
+    A transcript can be structurally identifiable (full rank) and still be
+    diagnostic nowhere, which is invisible to a rank test and is the regime
+    where quantifiers return confident answers with no support.
     """
     K = gene.n_iso
-    priv = [0] * K
+    diag = [0] * K
     tot = [0] * K
     for _sig, who in signature_owners(gene, R, F).items():
         solo = len(who) == 1
         for j, n in who.items():
             tot[j] += n
             if solo:
-                priv[j] += n
-    return list(zip(priv, tot))
+                diag[j] += n
+    return list(zip(diag, tot))
