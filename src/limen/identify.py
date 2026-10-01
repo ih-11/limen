@@ -267,3 +267,116 @@ def sweep(genes: Iterable[Gene], read_lengths: Sequence[int],
                     continue
                 out.append(identifiability(g, R, F))
     return out
+
+
+# --------------------------------------------------------------------------
+# conditioning: not "is it identifiable" but "how much evidence is there"
+# --------------------------------------------------------------------------
+
+def signature_owners(gene: Gene, R: int,
+                     F: Optional[int] = None) -> Dict[Signature, Dict[int, int]]:
+    """
+    {signature: {transcript index: number of start positions producing it}}.
+
+    Rank asks whether a distinguishing read exists.  This asks how many there
+    are, which is the question that survives contact with finite depth.
+    """
+    txs = gene.transcripts
+    span = R if F is None else F
+
+    cuts: Set[int] = set()
+    for t in txs:
+        if not t.exons:
+            continue
+        for s, e in t.exons:                   # every exon edge bounds a segment
+            cuts.add(s)
+            cuts.add(e)
+        L = t.length
+        if span >= L:
+            continue
+        max_x = L - span
+        for b in t.boundaries:                 # and every window-edge crossing
+            for o in _offsets(R, F):
+                for x in (b - o - 1, b - o, b - o + 1):
+                    if 0 <= x <= max_x:
+                        blk = t.to_genomic(x, x + 1)
+                        if blk:
+                            cuts.add(blk[0][0])
+        for x in (0, max_x, max_x + 1):        # including the first invalid start
+            blk = t.to_genomic(x, x + 1)
+            if blk:
+                cuts.add(blk[0][0])
+    ordered = sorted(cuts)
+
+    owners: Dict[Signature, Dict[int, int]] = {}
+    for i, g in enumerate(ordered):
+        stop = ordered[i + 1] if i + 1 < len(ordered) else g + 1
+        w = stop - g
+        if w <= 0:
+            continue
+        for j, t in enumerate(txs):
+            if not t.exons:
+                continue
+            L = t.length
+            if span >= L:
+                continue
+            x = t.to_transcript(g)
+            if x is None or x > L - span:
+                continue
+            sig = read_signature(t, x, R, F)
+            owners.setdefault(sig, {})
+            owners[sig][j] = owners[sig].get(j, 0) + w
+
+    for j, t in enumerate(txs):                # reads longer than the molecule
+        if t.exons and span >= t.length:
+            sig = _whole(t, F)
+            owners.setdefault(sig, {})
+            owners[sig][j] = owners[sig].get(j, 0) + 1
+    return owners
+
+
+def signature_owners_bruteforce(gene: Gene, R: int,
+                                F: Optional[int] = None) -> Dict[Signature, Dict[int, int]]:
+    """Reference implementation.  Slow; used only to validate the fast path."""
+    txs = gene.transcripts
+    span = R if F is None else F
+    owners: Dict[Signature, Dict[int, int]] = {}
+    for j, t in enumerate(txs):
+        if not t.exons:
+            continue
+        if span >= t.length:
+            sig = _whole(t, F)
+            owners.setdefault(sig, {})
+            owners[sig][j] = owners[sig].get(j, 0) + 1
+            continue
+        for x in range(0, t.length - span + 1):
+            sig = read_signature(t, x, R, F)
+            owners.setdefault(sig, {})
+            owners[sig][j] = owners[sig].get(j, 0) + 1
+    return owners
+
+
+def private_fraction(gene: Gene, R: int,
+                     F: Optional[int] = None) -> List[Tuple[int, int]]:
+    """
+    Per transcript: (private start positions, total start positions).
+
+    A start position is private when the resulting genomic footprint cannot be
+    produced by any other transcript of the gene.  The ratio is the share of a
+    molecule that actually carries evidence of its own identity.
+
+    A transcript can be structurally identifiable (rank full) and still have a
+    private fraction near zero: the distinguishing read exists but almost
+    nothing lands on it.  That is the regime where quantifiers return confident
+    answers with no support, and it is invisible to a rank test.
+    """
+    K = gene.n_iso
+    priv = [0] * K
+    tot = [0] * K
+    for _sig, who in signature_owners(gene, R, F).items():
+        solo = len(who) == 1
+        for j, n in who.items():
+            tot[j] += n
+            if solo:
+                priv[j] += n
+    return list(zip(priv, tot))
