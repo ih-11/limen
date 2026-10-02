@@ -131,8 +131,9 @@ def main(argv=None) -> int:
           f"({len(genes):,} loaded, {skipped_big:,} over the isoform cap)",
           file=sys.stderr)
     if not kept:
-        print("[limen] nothing to do", file=sys.stderr)
-        return 1
+        print("[limen] no genes meet the isoform threshold; writing empty "
+              "tables and the sidecar, which is itself the result",
+              file=sys.stderr)
 
     work = [(g, reads, frags) for g in kept]
     t0 = time.time()
