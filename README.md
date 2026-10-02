@@ -3,13 +3,18 @@
 **Measuring what sequencing can know, and what it only appears to know.**
 
 *limen* (Latin, *threshold*; in psychophysics, the smallest stimulus that can
-still be detected). Given an annotation, it computes the read length and
+still be detected). Given an annotation, it computes the read length and the
 sequencing depth at which two different RNA molecules stop being confusable,
-before any sequencing is done.
+before any sequencing has been done.
+
+This README is written to be self-contained. Anyone picking the project up,
+including a future conversation with no memory of the earlier ones, should be
+able to read this file and know what the project is, what has been built, what
+has been found, what is already known to be wrong, and what comes next.
 
 ---
 
-## The problem
+## 1. The problem
 
 Sequencing does not observe the transcriptome. It observes whatever survives
 extraction, fragmentation, reverse transcription, amplification, basecalling,
@@ -17,195 +22,186 @@ alignment and statistical inference. The molecule in the cell is not the
 molecule in the tube, is not the read, is not the FASTQ, is not the count
 table.
 
-Each step discards information, and none of the losses can be measured in a
-real experiment, because the starting state is never observed. We compare the
-end of one chain against the end of another and call the difference a result.
+Every one of those steps discards information, and in a real experiment none
+of the losses can be measured, because the starting state is never observed.
+What the field does instead is compare the end of one transformation chain
+against the end of another and attribute the difference to the technologies
+rather than to the chains.
 
-This project defines the starting state, so the loss becomes measurable.
+This project defines the starting state, so that the loss becomes measurable.
 
-## The question
+## 2. The question
 
-Long-read sequencing is usually chosen by category: *I study structural
-variants, therefore long reads*. The choice is rarely quantitative. The
-question here is the quantitative one:
+Long-read sequencing is usually chosen by category of application. A
+researcher studying structural variants uses long reads because that is what
+one does for structural variants. The choice is rarely quantitative, and the
+justification is usually a benchmark performed in a different organism with a
+different transcriptome.
+
+The question here is the quantitative one:
 
 > What can long reads know that short reads cannot, and to what extent?
 
-Not which platform is better, which depends on the question asked, but where
-the boundary sits, what sets its position, and when a short-read answer stops
-being merely imprecise and becomes unsupported.
+Not which platform is better, which depends entirely on the question being
+asked, but where the boundary sits, what determines its position, and when a
+short-read answer stops being merely imprecise and becomes unsupported by the
+data.
 
-## Approach
+## 3. Approach: three levels
 
 | | asks | needs | status |
 |---|---|---|---|
-| **Level 0** | what is knowable in principle at a given read length | annotation only | implemented |
+| **Level 0** | what is knowable in principle at a given read length | annotation only | implemented and running |
 | **Level 1** | what a real pipeline actually recovers | simulated reads, aligner, quantifier | not started |
 | **Level 2** | whether the predicted behaviour holds on real libraries | matched long and short read data | not started |
 
-**The distance between the ceiling and what is achieved is the result.**
-Level 0 alone is a known quantity in one organism. The gap is not.
+Level 0 computes a ceiling by assuming unlimited depth, no sequencing error
+and a complete annotation. Real pipelines land below that ceiling.
 
-Two axes no existing study covers:
+**The distance between the ceiling and what is actually achieved is the
+result.** Level 0 on its own is a known quantity in one organism, already
+published for human short reads. The gap is not known for anything.
 
-- **Transcriptome architecture as a variable.** How read length relates to
-  recoverable information depends on how exons are sized and spaced, and every
-  published analysis is human. A panel spanning intron-poor fungi, intron-rich
-  plants and algae, and a polyploid genome makes architecture an independent
-  variable rather than a constant.
-- **Reads generated under full control.** Fragment length, error profile,
-  truncation, chimera rate, depth and annotation completeness become separate
-  dials rather than bundled platform presets, so their contributions can be
-  told apart instead of attributed wholesale to read length.
+## 4. What Level 0 computes
 
-## What Level 0 computes
+Two quantities, which answer different questions and disagree in an
+informative way.
 
-Two quantities, which answer different questions.
+### Identifiability, which is the ceiling
 
-**Identifiability (the ceiling).** Every possible read contributes one row of a
-0/1 incidence matrix `M`, with a 1 for each transcript that could have produced
-it. If `rank(M) == K` the transcript abundances are uniquely determined. If
-`rank(M) < K`, genuinely different mixtures produce identical data and no
-algorithm, depth or replication can separate them. `K - rank(M)` counts the
-invisible dimensions.
+Every possible read contributes one row of a 0/1 incidence matrix `M`, with a
+1 in the column of each transcript that could have produced that read. Entries
+are 0 or 1 rather than counts because a genomic footprint fixes the start
+position, which fixes the position within any transcript able to produce it.
 
-This assumes unlimited depth, so it reports whether a distinguishing read
-*exists*, not whether it would ever be seen.
+- `rank(M) == K`: the transcript abundances are uniquely determined by the
+  data. The gene is identifiable.
+- `rank(M) < K`: genuinely different mixtures of transcripts produce
+  byte-identical data, and no algorithm, no sequencing depth and no number of
+  replicates can separate them. `K - rank(M)` counts the invisible dimensions.
 
-**Diagnostic evidence (the conditioning).** For each transcript, the share of
-its possible reads whose genomic footprint no sibling transcript could produce.
-Such a read is direct evidence that the molecule was present; a read a sibling
-could also explain is real data but silent about its origin.
+### Diagnostic evidence, which is the conditioning
 
-Zero does not mean a transcript gets no reads. It means every read it can
-produce is also explainable by a sibling, so its abundance is reachable only by
-subtracting the others. That is qualitatively different from a small fraction:
-small needs more depth, zero cannot be fixed by depth at all.
+Rank asks whether a distinguishing read exists somewhere. It does not ask
+whether that read would ever be observed. A gene counts as identifiable even
+if the only thing separating two of its transcripts is a twenty nucleotide
+window that almost no read will ever cover.
 
-A transcript can be structurally identifiable and diagnostic nowhere. A rank
-test cannot see that, and it is the regime in which quantifiers return
-confident estimates with no support.
+So for each transcript we also compute the share of its possible reads whose
+genomic footprint no sibling transcript could produce. Such a read is direct
+evidence that this particular molecule was present. A read that a sibling
+could also explain is real data, but it is silent about which molecule it came
+from.
+
+A diagnostic fraction of zero does not mean a transcript receives no reads. It
+means that every read it can produce is also explainable by a sibling, so its
+abundance is reachable only by subtracting the others. That is algebraically
+valid and statistically unstable, and it is qualitatively different from a
+small fraction. A small fraction needs more depth. Zero cannot be fixed by
+depth at all, because zero multiplied by any number of reads is still zero.
+
+A transcript can therefore be structurally identifiable and diagnostic
+nowhere. A rank test cannot see this, and it is precisely the regime in which
+quantification methods return confident estimates with no supporting evidence.
 
 Level 0 never reads sequence. A GFF3 or GTF is the only input.
 
-## Status
+## 5. Findings so far
 
-Level 0 is implemented and validated. Levels 1 and 2 are not started.
+These are preliminary, from Level 0 only, and the scope of each is stated
+because the numbers are meaningless without it.
 
-Implemented: identifiability by matrix rank, diagnostic fraction per
-transcript, single-end and paired-end, GFF3 and GTF reading with exon
-reconstruction from CDS and UTR features where `exon` is absent.
+### The ceiling is high
 
-Pending: reproduction of published human short-read identifiability rates as an
-external check on the implementation, the architecture sweep across the full
-genome panel, and all of Levels 1 and 2.
+On the 300 most isoform-rich genes of *Chlamydomonas reinhardtii*, meaning the
+hardest genes in that genome, **97.7 per cent are structurally identifiable at
+a 100 nucleotide read length**, rising to 100 per cent by 5 kb. Long reads buy
+roughly two percentage points.
 
-## Install
+The mechanism is that annotated isoforms almost always differ by at least one
+local feature. In a gene with twenty-one isoforms and twenty-three exons, each
+isoform tends to carry at least one junction or exon boundary unique to it,
+which produces a matrix row with a single 1 in it, and enough such rows make a
+full-rank submatrix. The pathological case, in which isoforms differ only in
+how distant decisions are combined, turns out to be rare.
 
-Python 3.9 or newer, and numpy. Nothing else.
+Whatever long reads buy, it is therefore not resolving-in-principle given a
+complete annotation.
 
-```bash
-git clone https://github.com/ih-11/limen.git
-cd limen
-pip install -e ".[dev]"
-pytest -q
-```
+### But a quarter of transcripts carry no evidence of their own identity
 
-Activate whichever environment you use first. The repository does not care
-which, and never names one.
+In the same gene set, at a 150 nucleotide read length:
 
-### Paths
+| | |
+|---|---|
+| identifiable by rank | 98.0 per cent |
+| transcripts with **zero** diagnostic reads | **25.3 per cent** |
+| under 1 per cent diagnostic | 41.3 per cent |
+| under 5 per cent diagnostic | 74.2 per cent |
+| median diagnostic fraction | 1.7 per cent |
 
-No absolute path appears in any committed file. Point the code at your data
-with two environment variables, in `~/.zshrc` on macOS or `~/.bashrc` on WSL:
+A quarter of transcripts in the most isoform-rich genes appear in a
+quantifier's output only as the residue of subtracting their siblings.
 
-```bash
-export LIMEN_REF="$HOME/Code/ReferenceGenome"      # annotations and genomes
-export LIMEN_WORK="$HOME/work/limen"               # generated output
-```
+This is the quantitative form of a phenomenon that has already been confirmed
+experimentally. Chen and colleagues found transcripts reported as dominant by
+short-read analysis, tested thirteen of them by digital PCR, and showed they
+were not the dominant molecules in the sample.
 
-Code lives in git. Large data never does. Generated output goes to
-`$LIMEN_WORK`. On WSL, keep working data under `$HOME` rather than under
-`/mnt/`, which is markedly slower.
+### Per base sequenced, the advantage is about threefold and arrives as a step
 
-Reference files are never modified. Spike-ins, organelles, unplaced contigs
-and transposable element genes are filtered when the annotation is read.
+Comparisons must be made per unit of sequencing effort rather than per read,
+because a 4 kb read costs roughly twenty-six times a 150 nucleotide read. A
+read also costs `min(read length, transcript length)` bases, never more, since
+you cannot spend 8 kb of sequencing to read a 2.7 kb molecule.
 
-## Use
+On that basis, diagnostic reads per megabase run at roughly 115 across the
+short-read range, **dip to about 89 at 1 kb**, and then climb to a plateau of
+about 275 once reads clear whole molecules.
 
-```python
-from limen import load_annotation, identifiability, diagnostic_fraction
+The dip is the interesting part. Between 150 nucleotides and 1 kb the
+diagnostic fraction rises about fivefold while the cost per read rises nearly
+sevenfold, so per base the result goes slightly backwards. Partial long reads
+are the worst of both worlds: you pay for length and do not get the thing that
+length is for. The benefit appears as a step function when reads clear the
+transcript, not as a gradient.
 
-genes, stats = load_annotation("annotation.gff3", verbose=True)
+### The architecture panel is confounded with annotation depth
 
-gene = genes[0]
-r = identifiability(gene, 150)
-print(r.rank, "of", r.n_iso, "identifiable" if r.identifiable else "deficient")
+Level 0 was run across five annotations. The isoform content is:
 
-for tx, (diag, total) in zip(gene.transcripts, diagnostic_fraction(gene, 150)):
-    print(tx.id, f"{100 * diag / total:.1f}% diagnostic")
-```
+| species | genes | transcripts | isoforms per gene | multi-isoform genes |
+|---|---|---|---|---|
+| *Komagataella phaffii* | 5,040 | 5,040 | 1.00 | 0 |
+| *Nicotiana benthamiana* | 59,814 | 59,814 | 1.00 | 0 |
+| *Oryza sativa* | 37,858 | 44,714 | 1.18 | 5,384 |
+| *Arabidopsis thaliana* | 33,016 | 54,369 | 1.65 | 11,058 |
+| *Chlamydomonas reinhardtii* | 16,883 | 31,858 | 1.89 | 7,287 |
 
-When comparing read lengths, express results per unit of sequencing effort
-rather than per read. A read costs `min(read length, transcript length)` bases,
-and comparing per read overstates the long-read advantage by roughly the ratio
-of the read lengths.
+Two of the five annotations call no alternative isoforms whatsoever. The rice
+file is the IRGSP *representative* transcript set, deliberately reduced to
+approximately one model per gene, so its 1.18 is a property of which file is
+on disk rather than of rice.
 
-## Validation
+The consequence is serious and must not be glossed over. **The two species
+with rich isoform annotation are also the two whose annotation projects set
+out to call isoforms.** Transcriptome architecture and annotation effort are
+completely confounded in this panel, so a claim of the form "species A needs
+longer reads than species B" cannot be defended.
 
-Correctness is established three ways, in increasing order of strength.
+### The reframe this forces
 
-1. **Toy genes with hand-derived answers.** The central case is four isoforms
-   produced by two independent exon skips about 2000 nt apart: rank 3 of 4
-   below 2002 nt, rank 4 at and above it, where 2002 is the shortest read
-   reaching from inside one skipped exon to inside the other.
-2. **Brute-force cross-checks on randomised genes.** The fast segmentation
-   algorithms are compared against naive enumeration over thousands of random
-   gene structures, single-end and paired-end, on every test run. This is not
-   decorative: it caught three separate bugs during development, each of which
-   produced plausible but wrong numbers that the toy genes alone did not expose.
-3. **Published results.** Reproducing the human short-read identifiability
-   rates reported by Ferrer-Bonsoms et al. (2022) is treated as a prerequisite
-   before the read-length axis is extended beyond their range. It is a
-   correctness check on the implementation, not a result.
+Species is the wrong unit of analysis. Architecture should be measured per
+gene, not per species.
 
-## Layout
+Across *Chlamydomonas*, *Arabidopsis* and *Oryza* there are already **23,729
+multi-isoform genes** spanning a wide range of exon counts, exon lengths,
+transcript lengths and isoform multiplicities. The relationship between read
+length and recoverable information can be measured directly across that range,
+using gene-level architecture as the predictor. Species then becomes a
+robustness check rather than the explanatory variable, and the confound stops
+mattering because no claim rests on it.
 
-```
-src/limen/   identify.py     the matrix, its rank, and diagnostic evidence
-             annotation.py   GFF3 and GTF, standard library only
-             __init__.py
-test/        toy expectations and brute-force cross-checks
-scripts/     batch jobs: produce data, write TSV, no plots
-notebook/    interpret data, make figures, decide. reads what scripts wrote
-ref/         manifest of genome sources. never the genomes themselves
-docs/        METHODS.md, RESEARCH_PLAN.md
-```
-
-The split matters: if it must be correct it goes in `src/` with a test, if it
-must be looked at it goes in a notebook, and anything heavy enough to run
-unattended goes in `scripts/` and writes a file the notebook then reads.
-
-## Prior work
-
-Structural identifiability of isoform deconvolution was established for
-short-read RNA-seq by Hiller et al. (2009), who derived the conditions but did
-not treat read length as a variable, and by Ferrer-Bonsoms et al. (2022), who
-computed identifiability as a function of read and fragment length in order to
-select a library. The latter covers the human transcriptome only, read lengths
-of 75 to 300 nt, assumes unlimited depth, and does not consider long reads.
-
-This repository contains an independent Python implementation written from the
-published descriptions. No code is derived from those projects.
-
-What is new here is the extension of the read-length axis into the long-read
-range, the treatment of transcriptome architecture as an independent variable,
-the replacement of binary identifiability with a measure of how much evidence
-exists, and the measurement of the distance between the structural ceiling and
-what real pipelines recover.
-
-The research plan, with full citations, is in `docs/RESEARCH_PLAN.md`.
-
-## Licence
-
-MIT.
+This is a better design in any case. "The required read length is predictable
+from gene structure" is both stronger and more useful than a ranking of
+species, and it is the question a laboratory would actually ask.
