@@ -205,3 +205,142 @@ mattering because no claim rests on it.
 This is a better design in any case. "The required read length is predictable
 from gene structure" is both stronger and more useful than a ranking of
 species, and it is the question a laboratory would actually ask.
+
+## 6. Data
+
+### Where things are
+
+| | path |
+|---|---|
+| repository | `~/Code/limen` on both machines, `github.com/ih-11/limen` |
+| annotations and genomes, WSL | `/mnt/f/RA/Downstream/Project4_LIMEN/ReferenceGenome` |
+| annotations and genomes, Mac | `~/Code/ReferenceGenome` |
+| generated output, both | `~/work/limen` |
+| project archive, drafts, final figures | `/mnt/f/RA/Downstream/Project4_LIMEN` |
+
+No absolute path appears in any committed file. The code is pointed at data
+by two environment variables, set in `~/.bashrc` on WSL and `~/.zshrc` on the
+Mac:
+
+```bash
+export LIMEN_REF="/mnt/f/RA/Downstream/Project4_LIMEN/ReferenceGenome"   # WSL
+export LIMEN_REF="$HOME/Code/ReferenceGenome"                            # Mac
+export LIMEN_WORK="$HOME/work/limen"                                     # both
+```
+
+Code lives in git. Large data never does. Generated output goes to
+`$LIMEN_WORK` and is excluded by `.gitignore`.
+
+### Annotations currently available
+
+All carry a `std_r_luc` suffix, meaning a Renilla luciferase spike-in cassette
+was added to the reference for a separate project. It is filtered out at load
+time and the reference files themselves are never modified.
+
+| species | file | source | note |
+|---|---|---|---|
+| *C. reinhardtii* | `CreinhardtiiCC_4532_707_v6.0.chr.std_r_luc.gff3` | Phytozome | no `exon` features, structure rebuilt from CDS and UTR |
+| *A. thaliana* | `Araport11_GFF3_genes_transposons.201606.std_r_luc.gff3` | Araport | mixed, mostly `exon`, includes organelles `ChrM` and `ChrC` |
+| *O. sativa* | `IRGSP-1.0_representative_2020-09-09.rev2.std_r_luc.gff3` | RAP-DB | **representative subset**, not the full annotation |
+| *N. benthamiana* | `Niben101_annotation.gene_models.fix.std_r_luc.gff3` | SGN | scaffolds not chromosomes, one transcript per gene |
+| *K. phaffii* | `GCF_000027005.1.ASM2700v1.chr.std_r_luc.gff3` | NCBI RefSeq | one transcript per gene |
+| *S. cerevisiae* | **missing** | NCBI RefSeq | only `.gfd.gz` present, no GFF3 yet |
+
+The *Chlamydomonas* file on the Mac is the v6.1 build rather than v6.0. The
+two were compared and produce identical filtered counts, 16,883 genes and
+31,858 transcripts, so results are comparable across machines. The chromosome
+naming differs, `chr01` on WSL against `chromosome_01` on the Mac, which
+matters for any `--seqids` filter.
+
+### Still to obtain
+
+- **GENCODE human**, needed for the validation gate and as an isoform-rich
+  anchor. Annotation only, about 46 MB:
+  `https://ftp.ebi.ac.uk/pub/databases/gencode/Gencode_human/release_38/gencode.v38.annotation.gtf.gz`
+- **S. cerevisiae GFF3**, either exported from the existing `.gfd.gz` or
+  downloaded from NCBI.
+- **Full rice annotation** rather than the representative subset, if a source
+  can be found.
+
+## 7. Environment
+
+| | Mac | WSL (`antec2025`) |
+|---|---|---|
+| conda environment | `ih` | `ibnu` |
+| Python | 3.11.16 | 3.11 |
+| hardware | Apple M5, 16 GB | Ryzen 9, 28 cores, 128 GB, 4 TB |
+| role | development, writing, Level 0 | the parameter sweeps, later Level 1 |
+
+Level 0 requires only Python 3.9 or newer and numpy, so it runs anywhere. The
+heavier Level 1 stack, meaning an aligner and a quantifier, is intended for
+the WSL machine, where Apptainer images already exist under
+`/mnt/f/RA/Containers`.
+
+On WSL, keep working data under `$HOME` rather than under `/mnt/`, which goes
+through a translation layer and is noticeably slower for repeated reads.
+
+## 8. Repository layout and the working rule
+
+```
+src/limen/   identify.py     the matrix, its rank, and diagnostic evidence
+             annotation.py   GFF3 and GTF reading, standard library only
+             toy.py          genes whose answers were derived by hand
+test/        toy expectations and brute-force cross-checks
+scripts/     batch jobs: produce data, write TSV, no plots
+notebook/    interpret data, make figures, decide. reads what scripts wrote
+ref/         manifest of genome sources, never the genomes themselves
+docs/        METHODS.md, RESEARCH_PLAN.md
+```
+
+The division of labour is deliberate and worth preserving:
+
+| | `scripts/*.py` | `notebook/*.ipynb` |
+|---|---|---|
+| does | produces data | interprets data |
+| run | terminal, unattended, every genome | cell by cell, with you watching |
+| input | annotation files | the TSVs the scripts wrote |
+| output | TSV into `$LIMEN_WORK/results` | figures, tables, judgement |
+| has | argparse, no plots, no hardcoded paths | plots, prints, exploration |
+| heavy computation | yes | no, it loads results |
+
+If it must be correct it belongs in `src/` with a test. If it must be looked
+at it belongs in a notebook. If it is heavy enough to run unattended it
+belongs in `scripts/` and writes a file the notebook then reads.
+
+## 9. Running it
+
+```bash
+conda activate ibnu          # or ih on the Mac
+cd ~/Code/limen
+pip install -e ".[dev]"
+pytest -q                    # expect 157 passing
+```
+
+One species:
+
+```bash
+python scripts/run_level0.py "$LIMEN_REF/<annotation>" \
+    --species Chlamydomonas --jobs 12
+```
+
+All of them:
+
+```bash
+bash scripts/run_all.sh
+```
+
+The whole five-species panel takes about 30 seconds at twelve jobs. Each run
+writes three files into `$LIMEN_WORK/results/level0`:
+
+- `<species>.genes.tsv`, per gene and read length: rank, deficiency, whether
+  identifiable, and the number of distinct read patterns
+- `<species>.transcripts.tsv`, per transcript and read length: diagnostic
+  start positions, total start positions, the fraction, and diagnostic reads
+  per megabase of sequencing
+- `<species>.run.json`, the sidecar recording the exact annotation file, its
+  size, modification time and digest, every parameter, the parse statistics,
+  timings and the package version
+
+The sidecar exists so that any result can be traced back to the file and
+parameters that produced it. A TSV without its sidecar should be treated as
+unreliable.
