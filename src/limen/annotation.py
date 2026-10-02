@@ -207,7 +207,9 @@ def load_annotation(
         return tuple(out)
 
     by_gene: Dict[str, List[Transcript]] = defaultdict(list)
-    for tid in set(exon_parts) | set(fallback_parts):
+    # sorted, not set order: hash randomisation would otherwise make
+    # which transcript survives deduplication differ between runs
+    for tid in sorted(set(exon_parts) | set(fallback_parts)):
         if tid in exon_parts:                  # prefer real exon features
             structure = _merge(exon_parts[tid])
             st.tx_from_exon += 1
