@@ -344,3 +344,125 @@ writes three files into `$LIMEN_WORK/results/level0`:
 The sidecar exists so that any result can be traced back to the file and
 parameters that produced it. A TSV without its sidecar should be treated as
 unreliable.
+
+## 10. Validation
+
+Correctness is established in three ways, in increasing order of strength.
+This matters more than usual here, because a simulation study that cannot
+demonstrate its own correctness has no claim on anyone's attention.
+
+**Toy genes with answers derived by hand.** The central case is four isoforms
+produced by two independently skipped exons about 2000 nucleotides apart: rank
+3 of 4 below 2002 nucleotides and rank 4 at or above it, where 2002 is the
+shortest read that reaches from inside one skipped exon to inside the other.
+A control gene has identical combinatorics with the exons 60 nucleotides
+apart, and resolves at 62 nucleotides, which demonstrates that the effect is
+about distance rather than isoform count.
+
+**Brute-force cross-checks on randomised genes.** The fast segmentation
+algorithms are compared against naive enumeration over thousands of random
+gene structures, single-end and paired-end, on every test run.
+
+**Published results.** Reproducing the human short-read identifiability rates
+of Ferrer-Bonsoms and colleagues is treated as a prerequisite before the
+read-length axis is extended beyond their range. It is a check on the
+implementation, not a result. A second gate, reproducing the fragmentation
+effect reported by Chen and colleagues, applies before any Level 1 claim.
+
+### Bugs the tests have caught
+
+Recorded because each produced plausible, wrong numbers that would not have
+been noticed otherwise.
+
+1. **Signatures are not constant between exon boundaries.** The first fast
+   implementation assumed they were. Genomic coordinates shift with every
+   base, so they are not. Thirty-seven of fifty-six tests failed immediately.
+   The correct formulation turned out to be cleaner: what matters is not the
+   signature but which transcripts share it, and that grouping genuinely is
+   piecewise constant.
+2. **Genomic segments could span an intron**, so read-start counts were
+   overcounted. Fixed by making every exon edge a segment boundary.
+3. **The transition point was bracketed on one side only.** A window starting
+   exactly `R` before a boundary ends at the boundary without crossing it, so
+   the change occurs at `b - R + 1` rather than `b - R`.
+4. **The trailing run of start positions collapsed to width one**, because the
+   final valid start had no boundary after it.
+5. **Transcripts shorter than the read were counted by segment width** instead
+   of once.
+6. **Deduplication of identical transcript structures was nondeterministic.**
+   It iterated a Python set, whose order varies between processes because of
+   hash randomisation, so which transcript survived differed between runs.
+   Caught by comparing serial against parallel output. For a project built on
+   traceability this was the most damaging of the six.
+
+### Things about the input that were not obvious
+
+1. **Phytozome annotations contain no `exon` features at all.** Structure must
+   be reconstructed from CDS and UTR features, which tile the mature
+   transcript, merging pieces that abut. A parser reading only `exon` lines
+   returns zero genes from these files, silently and without error.
+2. **Annotation sources disagree about what a gene is.** NCBI files include
+   `tRNA`, `ncRNA` and `pseudogene` entries, Araport includes transposons, and
+   Phytozome marks `transposable_element_gene` separately. These are filtered
+   deliberately rather than by default.
+3. **An empty sweep is a result, not an error.** When no gene meets the
+   isoform threshold the script writes empty tables and the sidecar and exits
+   zero, so that a species with no annotated isoforms is recorded rather than
+   aborting the run.
+
+## 11. Prior work
+
+The identifiability framework for short-read RNA sequencing is established:
+
+- Hiller, D., Jiang, H., Xu, W., Wong, W.H. (2009) Identifiability of isoform
+  deconvolution from junction arrays and RNA-Seq. *Bioinformatics* 25,
+  3056-3059. Derives the conditions. Read length is not a variable.
+- Ferrer-Bonsoms, J.A., Morales, X., Afshar, P.T., Wong, W.H., Rubio, A.
+  (2022) On the identifiability of the isoform deconvolution problem.
+  *Bioinformatics* 38, 1491-1496. Computes identifiability as a function of
+  read and fragment length in order to select a library. Human only, 75 to 300
+  nucleotides, unlimited depth assumed, long reads not considered. Code at
+  `github.com/JFerrer-B/transcriptome-identifiability`, in R, covering
+  chromosome 22 of GENCODE 24, with no licence stated.
+
+Note that Wing Hung Wong is an author on both, so the line runs through one
+group across thirteen years.
+
+This repository contains an independent Python implementation written from the
+published descriptions. No code is derived from those projects, which is a
+requirement rather than a preference, since the reference repository states no
+licence.
+
+What is new here is the extension of the read-length axis into the long-read
+range, the treatment of architecture as a variable, the replacement of binary
+identifiability with a measure of how much evidence exists, and the
+measurement of the distance between the structural ceiling and what real
+pipelines recover.
+
+The broader literature the project sits in is summarised with full citations
+in `docs/RESEARCH_PLAN.md`. The papers that matter most are Chen et al. 2025
+for the experimentally validated phantom isoforms, Han et al. 2024 for the
+finding that short reads detect more splice junctions at matched coverage,
+Apostolides et al. 2024 for joint short and long read quantification, and
+Foord et al. 2023 for the statement of the underlying question about whether
+features on a molecule are independent.
+
+## 12. Open decisions
+
+- Whether to analyse the current three usable species first, or obtain GENCODE
+  and the full rice annotation before analysing. Analysing first would reveal
+  within minutes whether gene-level architecture predicts anything at all,
+  which is the assumption the whole reframe depends on.
+- Whether to restrict every species to protein-coding genes on nuclear
+  chromosomes, which would make them comparable but discard material.
+- How to handle the organelle sequences present in Araport but absent from the
+  *Chlamydomonas* chromosome-only file.
+- Whether Level 1 generates reads with a purpose-built simulator in which
+  every knob is an experimental variable, or wraps existing simulators whose
+  platform presets bundle read length, error and artefacts together. The
+  current intention is the former, with Badread used as a realism anchor
+  rather than as a dependency.
+
+## 13. Licence
+
+MIT.
